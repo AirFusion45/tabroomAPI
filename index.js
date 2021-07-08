@@ -985,6 +985,91 @@ app.post('/codeExtract', (req, resApp) => { // req: apiauth, tournament link, co
 
 })
 
+app.post('/codeExtractNew', (req, resApp) => { // req: apiauth, tournament link, code, find the entries link, and then add the event id on there :facepalm:
+    if (!apiKey.includes(req.body.apiauth)) {
+        resApp.status(401)
+        resApp.send('Invalid API Key or no authentication provided.')
+        return;
+    }
+    if (!req.body.eventLink.includes('event_id')) { // link such as this: https://www.tabroom.com/index/tourn/index.mhtml?tourn_id=20262
+        superagent
+            .get(`https://www.tabroom.com/index/tourn/events.mhtml?tourn_id=${req.body.eventLink.replace('https://www.tabroom.com/index/tourn/index.mhtml?tourn_id=', "")}`)
+            .redirects(0)
+            .end(async (err, res) => {
+                var $ = cheerio.load(res.text)
+                var eventLinks = []
+                eventLinks.push((`https://www.tabroom.com/index/tourn/${$($('[class="dkblue half nowrap marvertno"]')[0]).attr('href')}`).replace('events', 'fields'))
+                for (i = 0; i < $('[class="blue half nowrap marvertno"]').length; i++) {
+                    eventLinks.push((`https://www.tabroom.com/index/tourn/${$($('[class="blue half nowrap marvertno"]')[i]).attr('href')}`).replace('events', 'fields'))
+                }
+
+                eventSearchDeliver(req, eventLinks, resApp)
+            })
+
+        async function eventSearchDeliver(req, eventLinks, resApp) {
+            var searchResults = []
+            for (i = 0; i < eventLinks.length; i++) {
+                searchResults.push(eventSearch(req, eventLinks[i]))
+            }
+            // https://medium.com/@chrisjr06/why-and-how-to-avoid-await-in-a-for-loop-32b86722171
+            try {
+                searchResults = await Promise.all(searchResults)
+                await resApp.send([])
+            } catch(e){
+                await resApp.send(e)
+            }
+        }
+        async function eventSearch(req, link) {
+            return new Promise((resolve, reject) => {
+                superagent
+                    .get(link)
+                    .redirects(0)
+                    .end(async (err, res) => {
+                        var $ = cheerio.load(res.text)
+                        for (i = 0; i < $('.main').children('table').children('tbody').children().length; i++) {
+                            if (req.body.code === $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[3]).text().trim()) {
+                                reject({
+                                    "school": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[0]).text().trim(),
+                                    "locale": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[1]).text().trim(),
+                                    "entry": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[2]).text().trim(),
+                                    "code": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[3]).text().trim(),
+                                    "status": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[4]).text().trim()
+                                })
+                            }
+                        }
+                        resolve()
+                    })
+            })
+        }
+    } else {  // if this is an event link
+
+        superagent
+            .get(req.body.eventLink)
+            .redirects(0)
+            .end((err, resSecond) => {
+                var $ = cheerio.load(resSecond.text)
+
+                for (i = 0; i < $('.main').children('table').children('tbody').children().length; i++) {
+
+                    if (req.body.code === $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[3]).text().trim()) {
+                        resApp.send({
+                            "school": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[0]).text().trim(),
+                            "locale": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[1]).text().trim(),
+                            "entry": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[2]).text().trim(),
+                            "code": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[3]).text().trim(),
+                            "status": $($($('.main').children('table').children('tbody').children('tr')[i]).children('td')[4]).text().trim()
+                        })
+                        return;
+                    }
+
+                }
+                resApp.status(404)
+                resApp.send(`Entry not found.`)
+            })
+    }
+
+})
+
 app.post('/getprelimrecord', (req, resApp) => {
     // input: eventLink with event id, team/oppoent code
     if (!apiKey.includes(req.body.apiauth)) {
